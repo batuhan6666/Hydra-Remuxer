@@ -1,2 +1,4 @@
 # Ucuncu parti kod dil istatistigine katilmasin
 xxhash.h linguist-vendored
+# Ne olur ne olmaz: xxhash.h esasen C kodudur, C++ sayilmasin
+xxhash.h linguist-language=C
