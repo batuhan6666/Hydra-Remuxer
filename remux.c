@@ -29,7 +29,8 @@
 
 /* Hydra Remuxer: Win32 arayuz + ffmpeg ile mkv'ya tasima.
    video/ses'e dokunmaz (-c copy), bitince XXH3 ile karsilastirir.
-   derleme: build.bat (mingw). bayraklarla oynama, hiz oradan geliyor. */
+   derleme: build.bat (mingw). bayraklarla oynama, hiz oradan geliyor.
+   lisans: LICENSE dosyasina bak. fork/degisiklik icin izin gerekir. */
 
 #define IDC_LIST      101
 #define IDC_BTN_ADD   102

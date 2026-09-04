@@ -41,5 +41,11 @@ BILINEN SINIRLAR
     tek dosyada, yaninda xxhash.h var ( Disaridan alindi, elleme).
 
 SURUM
+  v1.0.2 - medya disi dosya kapisi.
+  v1.0.1 - arayuz cilasi (ikonlar, ipucu, gorev cubugu).
   v1.0.0 - ilk surum.
   Bir sorun gorursen GitHub Issues'ya yaz.
+
+LISANS
+  LICENSE dosyasina bak. Ozet: fork'lamak ve degistirmek icin
+  once izin alman lazim (Issues'dan yazman yeterli).
