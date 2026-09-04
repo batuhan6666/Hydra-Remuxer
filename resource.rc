@@ -18,12 +18,12 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            VALUE "CompanyName",      "RemuxMKV"
-            VALUE "FileDescription",  "RemuxMKV - Win32 FFmpeg Remux (hedef: MKV)"
+            VALUE "CompanyName",      "Hydra Remuxer"
+            VALUE "FileDescription",  "Hydra Remuxer - Win32 FFmpeg Remux (hedef: MKV)"
             VALUE "FileVersion",      "1.0.0.0"
-            VALUE "InternalName",     "RemuxMKV"
-            VALUE "OriginalFilename", "RemuxMKV.exe"
-            VALUE "ProductName",      "RemuxMKV"
+            VALUE "InternalName",     "HydraRemuxer"
+            VALUE "OriginalFilename", "HydraRemuxer.exe"
+            VALUE "ProductName",      "Hydra Remuxer"
             VALUE "ProductVersion",   "1.0.0.0"
         END
     END

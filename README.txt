@@ -1,8 +1,8 @@
-RemuxMKV - Win32 API + ffmpeg remux araci (hedef: hep MKV)
+Hydra Remuxer - Win32 API + ffmpeg remux araci (hedef: hep MKV)
 =======================================================
 
 KULLANIM
-  1. RemuxMKV.exe'yi calistirin (ffmpeg.exe ayni klasorde veya PATH'te olmali).
+  1. HydraRemuxer.exe'yi calistirin (ffmpeg.exe ayni klasorde veya PATH'te olmali).
   2. Videolari pencereye surukleyip birakin (dosya veya klasor).
      - Dosya birakma: her sey kabul edilir, ffmpeg ne acarsa.
      - Klasor birakma: bilinen medya uzantilari taranir.
@@ -35,8 +35,8 @@ XXH3 DOGRULAMA (varsayilan acik, "XXH3 ile dogrula" kutusuyla kapatilabilir)
   Maliyet: dosyanin bir kez decode edilmesi kadar sure (bu makinede 1080p
   H264 icin ~111 kare/sn olculdu); kuyruktaki diger dosyalarin remux'uyla
   ortusur. Hata durumunda cikti SILINMEZ, satirda hata yazilir.
-  Bagimsiz kullanim: RemuxMKV.exe /check kaynak cikti [/silent]
-  Cikis kodu: 0=ok, 1=hata. REMUXMKV_VERIFYLOG ortam degiskenine dosya yolu
+  Bagimsiz kullanim: HydraRemuxer.exe /check kaynak cikti [/silent]
+  Cikis kodu: 0=ok, 1=hata. HYDRA_VERIFYLOG ortam degiskenine dosya yolu
   verilirse sonuclar oraya da yazilir.
 
 HIZ NOTLARI
@@ -46,7 +46,7 @@ HIZ NOTLARI
   - HDD kullaniyorsaniz paralelligi 2'ye dusurun; SSD'de CPU sayisinda birakin.
 
 TOPLU / KOMUT SATIRI
-  RemuxMKV.exe video1.mp4 video2.avi "D:\arsiv"
+  HydraRemuxer.exe video1.mp4 video2.avi "D:\arsiv"
   Arguman verilen dosyalar otomatik kuyruga girer ve islem kendiliginden baslar.
 
 GEREKSINIM
@@ -56,4 +56,4 @@ GEREKSINIM
 DERLEME
   build.bat'i calistirin veya:
     windres resource.rc -o resource.o
-    gcc -O3 -march=native -flto -s -municode -mwindows -Wall -o RemuxMKV.exe remux.c resource.o -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi
+    gcc -O3 -march=native -flto -s -municode -mwindows -Wall -Wextra -fstack-protector-strong -D_FORTIFY_SOURCE=2 -o HydraRemuxer.exe remux.c resource.o -lcomctl32 -lcomdlg32 -lshell32 -lshlwapi

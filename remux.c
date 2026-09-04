@@ -28,7 +28,7 @@
 #pragma GCC diagnostic pop
 
 /* ============================================================
-   RemuxMKV - saf Win32 API + harici ffmpeg.exe ile hizli remux
+   HydraRemuxer - saf Win32 API + harici ffmpeg.exe ile hizli remux
    Hedef her zaman MKV. Re-encode YOK (-c copy).
    Derleme: build.bat (MinGW-GCC, -O3 -march=native -flto)
    ============================================================ */
@@ -647,7 +647,7 @@ static void VProgress(HWND wnd, int idx, int pct, const wchar_t *txt) {
 }
 
 static void VerifyLog(const wchar_t *src, const wchar_t *dst, const VerifyResult *vr, int rc) {
-    const wchar_t *env = _wgetenv(L"REMUXMKV_VERIFYLOG");
+    const wchar_t *env = _wgetenv(L"HYDRA_VERIFYLOG");
     FILE *f;
     if (!env || !*env || !vr) return;
     f = _wfopen(env, L"a, ccs=UTF-8");
@@ -1252,7 +1252,7 @@ static void StartJobs(void) {
     if (g_busy || g_count == 0) return;
     if (!FindFfmpeg(ff, 32768)) {
         MessageBoxW(g_hMain, L"ffmpeg.exe bulunamadı.\n\nffmpeg.exe'yi programın yanına koyun veya PATH'e ekleyin.",
-                    L"RemuxMKV", MB_ICONERROR | MB_OK);
+                    L"Hydra Remuxer", MB_ICONERROR | MB_OK);
         return;
     }
     for (i = 0; i < g_count; i++)
@@ -1266,7 +1266,7 @@ static void StartJobs(void) {
             }
     }
     if (q == 0) {
-        MessageBoxW(g_hMain, L"Tüm işler zaten tamamlanmış.", L"RemuxMKV", MB_ICONINFORMATION | MB_OK);
+        MessageBoxW(g_hMain, L"Tüm işler zaten tamamlanmış.", L"Hydra Remuxer", MB_ICONINFORMATION | MB_OK);
         return;
     }
     {
@@ -1515,7 +1515,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_CLOSE:
         if (g_busy) {
             if (MessageBoxW(hwnd, L"İşlem devam ediyor. Çıkıp yarım dosyaları iptal edilsin mi?",
-                            L"RemuxMKV", MB_YESNO | MB_ICONQUESTION) != IDYES)
+                            L"Hydra Remuxer", MB_YESNO | MB_ICONQUESTION) != IDYES)
                 return 0;
             StopJobs();
             Sleep(400);
@@ -1550,22 +1550,22 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
     wc.hIcon = LoadIconW(NULL, IDI_APPLICATION);
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = L"RemuxMKVClass";
+    wc.lpszClassName = L"HydraRemuxerClass";
     wc.hIconSm = LoadIconW(NULL, IDI_APPLICATION);
     if (!RegisterClassExW(&wc)) {
-        MessageBoxW(NULL, L"Pencere sınıfı kaydedilemedi.", L"RemuxMKV", MB_ICONERROR | MB_OK);
+        MessageBoxW(NULL, L"Pencere sınıfı kaydedilemedi.", L"Hydra Remuxer", MB_ICONERROR | MB_OK);
         return 1;
     }
 
-    hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, L"RemuxMKVClass",
-                           L"RemuxMKV — Win32 FFmpeg Remux (hedef: MKV)",
+    hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, L"HydraRemuxerClass",
+                           L"Hydra Remuxer — Win32 FFmpeg Remux (hedef: MKV)",
                            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                            CW_USEDEFAULT, CW_USEDEFAULT, 920, 560,
                            NULL, NULL, hInst, NULL);
     if (!hwnd) return 1;
     g_hMain = hwnd;
 
-    /* konsolsuz dogrulama modu: RemuxMKV.exe /check kaynak cikti [/silent]
+    /* konsolsuz dogrulama modu: HydraRemuxer.exe /check kaynak cikti [/silent]
        cikis kodu: 0=ok, 1=hata, 3=kullanim/ffmpeg yok */
     {
         int argc = 0;
@@ -1591,12 +1591,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
                     }
                     if (!silent) {
                         MessageBoxW(NULL, vr.detail,
-                                    rc == 0 ? L"RemuxMKV Doğrulama OK" : L"RemuxMKV Doğrulama HATASI",
+                                    rc == 0 ? L"Hydra Remuxer Doğrulama OK" : L"Hydra Remuxer Doğrulama HATASI",
                                     (rc == 0 ? MB_ICONINFORMATION : MB_ICONERROR) | MB_OK);
                     }
                 } else if (!silent) {
-                    MessageBoxW(NULL, L"Kullanım: RemuxMKV.exe /check kaynak çıktı [/silent]",
-                                L"RemuxMKV", MB_ICONINFORMATION | MB_OK);
+                    MessageBoxW(NULL, L"Kullanım: HydraRemuxer.exe /check kaynak çıktı [/silent]",
+                                L"Hydra Remuxer", MB_ICONINFORMATION | MB_OK);
                 }
                 LocalFree(argv);
                 DeleteCriticalSection(&g_cs);
