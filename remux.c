@@ -15,23 +15,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* xxHash tek-header (BSD-2): XXH_INLINE_ALL ile ek .c/.obj gerekmez.
-   XXH3_64bits() girdiyi salt okur, ic kopya yapmaz.
-   Not: -fanalyzer, xxhash'in hizali-tahsis (aligned allocator) desenini
-   cozemeyip XXH_alignedMalloc'ta sahte 'malloc-leak' uyarisi uretir.
-   XXH3_createState/XXH3_freeState eslesmesi kodda tektir (SideThread),
-   bu yuzden yalnizca bu uyarı, yalnizca bu header icin susturuldu. */
+/* xxhash.h (v0.8.3) tek basina yeterli, ayrica obje derlenmiyor.
+   XXH_INLINE_ALL'i acmayi unutma yoksa link patlar.
+   Not: -fanalyzer buradaki hizali malloc desenini anlamayip sahte
+   leak uyarisi veriyor, o yuzden asagidaki pragma var. create/free
+   eslesmesi SideThread'de tek noktada, sorun yok. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wanalyzer-malloc-leak"
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 #pragma GCC diagnostic pop
 
-/* ============================================================
-   HydraRemuxer - saf Win32 API + harici ffmpeg.exe ile hizli remux
-   Hedef her zaman MKV. Re-encode YOK (-c copy).
-   Derleme: build.bat (MinGW-GCC, -O3 -march=native -flto)
-   ============================================================ */
+/* Hydra Remuxer: Win32 arayuz + ffmpeg ile mkv'ya tasima.
+   video/ses'e dokunmaz (-c copy), bitince XXH3 ile karsilastirir.
+   derleme: build.bat (mingw). bayraklarla oynama, hiz oradan geliyor. */
 
 #define IDC_LIST      101
 #define IDC_BTN_ADD   102
@@ -79,7 +76,7 @@ static int    g_maxPar = 4;
 static HANDLE g_procs[MAXJOBS];   /* calisan ffmpeg process handle'lari */
 static ULONGLONG g_startTick = 0;
 
-/* ---------- yardimcilar ---------- */
+// yardimcilar
 
 static const wchar_t *StatusText(JobStatus s) {
     switch (s) {
@@ -204,7 +201,7 @@ static BOOL FindFfmpeg(wchar_t *out, int cch) {
     return FALSE;
 }
 
-/* ---------- kuyruk / liste ---------- */
+// kuyruk / liste
 
 static void UpdateRow(int idx) {
     Job *j;
@@ -251,7 +248,7 @@ static void RefreshTotals(void) {
     SendMessageW(g_hStatus, SB_SETTEXTW, 0, (LPARAM)t);
 }
 
-/* UI thread'inden cagrilir. Donus: index veya -1 (duplicate/dolu/hatali) */
+// UI thread'inden cagrilir. donus: index, olmazsa -1
 static int AddJob(const wchar_t *path) {
     WIN32_FILE_ATTRIBUTE_DATA fad;
     const wchar_t *slash;
@@ -317,7 +314,7 @@ static void AddFolderDropped(const wchar_t *dir) {
     FindClose(h);
 }
 
-/* ---------- ffmpeg ilerleme satiri coz ---------- */
+/* ---- ffmpeg ciktisindan ilerleme okuma ---- */
 
 typedef struct {
     LONGLONG dur_us;      /* toplam sure, 0 = bilinmiyor */
@@ -361,7 +358,7 @@ static void ProcessLine(Job *j, ProgState *ps, const char *line, int idx, ULONGL
         }
     }
 
-    /* UI guncelleme kisitlamasi: % degisti veya 300ms gecti */
+    /* her satirda PostMessage yapma, UI'yi bogar. % degisince ya da 300ms'de bir */
     {
         int pct = -1;
         ULONGLONG now = GetTickCount64();
@@ -396,14 +393,11 @@ static void ProcessLine(Job *j, ProgState *ps, const char *line, int idx, ULONGL
     }
 }
 
-/* ---------- isci: tek dosyayi remux'la ---------- */
+/* --- remux isi --- */
 
-/* Uyumluluk merdiveni (hepsi re-encode'suz, video/ses hep -c copy):
-   0 = tam kopya (-map 0)
-   1 = veri izlerini at (-map -0:d: tmcd/timecode, klv vb. MKV'ye giremez)
-   2 = + altyaziyi srt'ye cevir (mov_text MP4 altyazisi MKV'ye kopyalanamaz;
-      metin donusumu video/ses hizini etkilemez)
-   3 = son care: sadece video+ses+ekler */
+/* bazi mp4'ler mkv'ya direkt gecmiyor (mov_text altyazi, timecode izleri...).
+   once tam kopya dene, olmazsa sirayla: veri izlerini at, altyaziyi srt yap,
+   en son care video+ses. video/ses hep kopya, encode yok. */
 static void BuildCmd(const wchar_t *ff, const wchar_t *in, const wchar_t *out,
                      int attempt, wchar_t *cmd, size_t cch) {
     const wchar_t *mapopts;
@@ -413,9 +407,9 @@ static void BuildCmd(const wchar_t *ff, const wchar_t *in, const wchar_t *out,
     case 3:  mapopts = L"-map 0:v -map 0:a -map 0:t -c copy"; break;
     default: mapopts = L"-map 0 -c copy"; break;
     }
-    /* HIZ: -c copy (re-encode yok) + dusuk probe + -threads auto + buyuk mux kuyrugu.
-       -nostdin: arka planda stdin kilitlenmesini onler. -y: cikis adi benzersiz
-       uretildigi icin guvenli. -progress pipe:1: canli % ve hiz. */
+    /* hiz buradan: re-encode yok, probe kisa, thread auto, kuyruk buyuk.
+       -nostdin sart (yoksa arka planda takiliyor), -y guvenli cunku
+       cikis ismi onceden tekillestiriliyor. -progress ile canli % okunuyor */
     _snwprintf(cmd, cch,
         L"\"%s\" -hide_banner -loglevel warning -nostdin -y "
         L"-fflags +genpts+discardcorrupt -probesize 5M -analyzeduration 5M -threads auto "
@@ -434,7 +428,7 @@ static const wchar_t *AttemptNote(int attempt) {
     }
 }
 
-/* Tek pas kosar. Donus: 0=basari, -1=iptal, -2=baslatma hatasi, >0=ffmpeg cikis kodu */
+// tek pas: 0 ok, -1 iptal, -2 acilamadi, >0 ffmpeg cikis kodu
 static int RunPass(int idx, const wchar_t *ff, const wchar_t *out, int attempt,
                    ProgState *ps, Job *j) {
     wchar_t *cmd;
@@ -610,14 +604,13 @@ static int RunFfmpeg(int idx) {
     return rc ? rc : 1;
 }
 
-/* ---------- XXH3 kare-seviyesi dogrulama ----------
-   Video: kaynak ve cikti ayni decode boru hattindan ham karelere acilir,
-   her kare XXH3_64 ile hash'lenir ve karsilastirilir (-vsync 0 sart, yoksa
-   CFR esitleme container'a gore kare kopyalar).
-   Ses: paket yuku kopyalanir (-f data), akan tek XXH3 + toplam uzunluk
-   karsilastirilir (decode gapless budamasi containera gore degisir).
-   SIFIR ARA KOPYA: boru dogrudan kare tamponuna okunur, hash o tamponun
-   pointer'iyla hesaplanir; kare basi malloc/memcpy yok. */
+/* XXH3 dogrulama: kaynakla ciktiyi ham kareye acip karsilastir.
+   iki derste ogrenildi, unutma:
+   1) -vsync 0 sart. yoksa ffmpeg container'a gore kare kopyaliyor,
+      sayilar tutmuyor (mkv tarafi +1 kare verdi, 1 saat gitti).
+   2) sesi decode edip karsilastirma! mp3 gapless budamasi mp4 ile
+      mkv'de farkli cikiyor. ses = paket yuku (-f data) + akan hash.
+   boru dogrudan kare tamponuna okunuyor, ara kopya yok. */
 
 typedef struct {
     int code;               /* 0=ok, -1=iptal, 1=hata */
@@ -633,7 +626,7 @@ typedef struct {
     char pix[32];
 } VStream;
 
-/* GUI ilerleme bildirimi; wnd==NULL ise sessiz (/check modu) */
+// ilerleme bildirimi. wnd yoksa sessiz (/check modu)
 static void VProgress(HWND wnd, int idx, int pct, const wchar_t *txt) {
     if (!wnd || idx < 0 || !txt) return;
     EnterCriticalSection(&g_cs);
@@ -859,8 +852,7 @@ static int HashAppend(SideJob *s, XXH64_hash_t h) {
     return 0;
 }
 
-/* Boruyu dogrudan isletim tamponuna okur, hash'i o tamponla hesaplar:
-   ara kopya yok, kare basi tahsis yok. */
+// boruyu direkt kare tamponuna oku, hash'i oradan al. kopya yok.
 static DWORD WINAPI SideThread(LPVOID p) {
     SideJob *s = (SideJob *)p;
     unsigned char *fbuf = (unsigned char *)malloc(s->unit);
@@ -901,7 +893,7 @@ static DWORD WINAPI SideThread(LPVOID p) {
     return 0;
 }
 
-/* Tek akisi iki tarafta karsilastir. Donus: 0=ok, -1=iptal, 1=fark/hata. */
+// tek akis, iki taraf: 0 ok, -1 iptal, 1 fark
 static int VerifyStream(const wchar_t *ff, const wchar_t *src, const wchar_t *dst,
                         BOOL video, int sidx, size_t unit, BOOL force420,
                         ULONGLONG est, HWND vwnd, int vidx,
@@ -987,7 +979,7 @@ static int VerifyStream(const wchar_t *ff, const wchar_t *src, const wchar_t *ds
         }
     }
 
-    /* bitis + ilerleme pompalama */
+    /* bitmesini bekle, arada % pompla */
     for (;;) {
         BOOL d0 = (WaitForSingleObject(ht[0], 0) == WAIT_OBJECT_0);
         BOOL d1 = (WaitForSingleObject(ht[1], 0) == WAIT_OBJECT_0);
@@ -1067,7 +1059,7 @@ static int VerifyStream(const wchar_t *ff, const wchar_t *src, const wchar_t *ds
     }
 }
 
-/* Kaynak<->cikti tam dogrulama. Donus: 0=ok, -1=iptal, 1=hata. */
+// kaynak<->cikti karsilastirma: 0 ok, -1 iptal, 1 hata
 static int VerifyJobPaths(const wchar_t *ff, const wchar_t *src, const wchar_t *dst,
                           HWND vwnd, int vidx, VerifyResult *vr) {
     VStream vs[16], vd[16];
@@ -1243,7 +1235,7 @@ static DWORD WINAPI ManagerThread(LPVOID unused) {
     return 0;
 }
 
-/* ---------- is akisi ---------- */
+/* is akisi: baslat/durdur/temizle + dosya ekleme diyaloğu */
 
 static void StartJobs(void) {
     HANDLE h;
@@ -1339,7 +1331,7 @@ static void AddFilesDialog(void) {
     free(buf);
 }
 
-/* ---------- pencere yerlesimi ---------- */
+// pencere yerlesimi, elle hizalanmis kontroller
 
 static void Layout(void) {
     RECT rc;
@@ -1367,7 +1359,7 @@ static void Layout(void) {
     }
 }
 
-/* ---------- WndProc ---------- */
+/* ----- WndProc: butun pencere olaylari burada ----- */
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -1529,7 +1521,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-/* ---------- giris ---------- */
+// giris noktasi
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
     WNDCLASSEXW wc;
@@ -1565,8 +1557,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
     if (!hwnd) return 1;
     g_hMain = hwnd;
 
-    /* konsolsuz dogrulama modu: HydraRemuxer.exe /check kaynak cikti [/silent]
-       cikis kodu: 0=ok, 1=hata, 3=kullanim/ffmpeg yok */
+    // penceresiz mod: HydraRemuxer.exe /check kaynak cikti [/silent]
+    // donus: 0 ok, 1 hata, 3 eksik arguman ya da ffmpeg yok
     {
         int argc = 0;
         LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -1606,7 +1598,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
         }
     }
 
-    /* komut satirindan dosya verildiyse kuyruga al + otomatik baslat (test + toplu is) */
+    // exe'ye dosya suruklenip birakilirsa (ya da arguman verilirse) kuyruga al, baslat
     {
         int argc = 0;
         LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);

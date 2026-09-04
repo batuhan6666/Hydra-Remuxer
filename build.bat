@@ -1,5 +1,5 @@
 @echo off
-REM HydraRemuxer derleme scripti - MinGW-GCC (MSYS2 UCRT64)
+REM derleme icin MSYS2 UCRT64 lazim, normal cmd'de gcc bulunamaz
 setlocal
 where gcc >nul 2>nul
 if errorlevel 1 (
