@@ -1788,8 +1788,11 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
                 if (argv[i][0] == L'-' || argv[i][0] == L'/') continue;
                 a = GetFileAttributesW(argv[i]);
                 if (a == INVALID_FILE_ATTRIBUTES) continue;
-                if (a & FILE_ATTRIBUTE_DIRECTORY) AddFolderDropped(argv[i]);
-                else if (AddJob(argv[i]) >= 0) autoStart = 1;
+                if (a & FILE_ATTRIBUTE_DIRECTORY) {
+                    int before = g_count;
+                    AddFolderDropped(argv[i]);
+                    if (g_count > before) autoStart = 1;
+                } else if (AddJob(argv[i]) >= 0) autoStart = 1;
             }
             LocalFree(argv);
         }
