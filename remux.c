@@ -11,6 +11,7 @@
 #include <commctrl.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,7 @@
 #define IDC_PROG      108
 #define IDC_STATUS    109
 #define IDC_CHK_VERIFY 110
+#define IDC_HINT      111
 
 #define WM_APP_JOB_UPDATE (WM_APP + 1)
 #define WM_APP_ALL_DONE   (WM_APP + 2)
@@ -63,6 +65,14 @@ static HWND g_hMain, g_hList, g_hBtnAdd, g_hBtnStart, g_hBtnStop, g_hBtnClear;
 static HWND g_hSpinEdit, g_hSpin, g_hProg, g_hStatus;
 static HWND g_hChkVerify;
 static BOOL g_doVerify = TRUE;
+static HWND g_hHint;
+static HFONT g_hFontBig;
+static HIMAGELIST g_hImg;
+static ITaskbarList3 *g_pTask;
+
+/* asagida tanimlananlar, yukaridan cagrildigi icin ondeklarasyon */
+static int StatusIcon(JobStatus s);
+static void TaskSet(int state, ULONGLONG done, ULONGLONG total);
 static HFONT g_hFont;
 
 static Job *g_jobs[MAXJOBS];
@@ -217,9 +227,10 @@ static void UpdateRow(int idx) {
     FmtSize(j->size, sz, 32);
 
     memset(&li, 0, sizeof(li));
-    li.mask = LVIF_TEXT; li.iItem = idx;
-    li.iSubItem = 0; li.pszText = j->name;
+    li.mask = LVIF_TEXT | LVIF_IMAGE; li.iItem = idx;
+    li.iSubItem = 0; li.pszText = j->name; li.iImage = StatusIcon(j->st);
     ListView_SetItem(g_hList, &li);
+    li.mask = LVIF_TEXT;
     li.iSubItem = 1; li.pszText = sz;
     ListView_SetItem(g_hList, &li);
     li.iSubItem = 2; li.pszText = status;
@@ -235,6 +246,8 @@ static void RefreshTotals(void) {
         SendMessageW(g_hProg, PBM_SETPOS, 0, 0);
         SendMessageW(g_hStatus, SB_SETTEXTW, 0, (LPARAM)L"Hazır — dosya sürükleyip bırakın");
         SendMessageW(g_hStatus, SB_SETTEXTW, 1, (LPARAM)L"");
+        if (g_hHint) ShowWindow(g_hHint, SW_SHOW);
+        TaskSet(TBPF_NOPROGRESS, 0, 0);
         return;
     }
     for (i = 0; i < g_count; i++)
@@ -246,6 +259,8 @@ static void RefreshTotals(void) {
     else
         swprintf(t, 256, L"%d dosya kuyrukta", g_count);
     SendMessageW(g_hStatus, SB_SETTEXTW, 0, (LPARAM)t);
+    if (g_hHint) ShowWindow(g_hHint, SW_HIDE);
+    if (g_busy) TaskSet(TBPF_NORMAL, (ULONGLONG)doneN, (ULONGLONG)g_count);
 }
 
 // UI thread'inden cagrilir. donus: index, olmazsa -1
@@ -1272,6 +1287,7 @@ static void StartJobs(void) {
     EnableWindow(g_hBtnClear, FALSE);
     EnableWindow(g_hBtnStop, TRUE);
     EnableWindow(g_hChkVerify, FALSE);
+    TaskSet(TBPF_NORMAL, 0, 1);
     h = CreateThread(NULL, 0, ManagerThread, NULL, 0, NULL);
     if (h) CloseHandle(h);
 }
@@ -1280,6 +1296,7 @@ static void StopJobs(void) {
     int i;
     if (!g_busy) return;
     g_stop = TRUE;
+    TaskSet(TBPF_PAUSED, 0, 0);
     EnterCriticalSection(&g_cs);
     for (i = 0; i < g_count; i++)
         if (g_procs[i]) TerminateProcess(g_procs[i], 130);
@@ -1333,6 +1350,120 @@ static void AddFilesDialog(void) {
 
 // pencere yerlesimi, elle hizalanmis kontroller
 
+// durum -> satir ikonu (0 bekliyor, 1 calisiyor, 2 bitti, 3 hata, 4 iptal)
+static int StatusIcon(JobStatus s) {
+    switch (s) {
+    case JS_RUNNING:   return 1;
+    case JS_DONE:      return 2;
+    case JS_ERROR:     return 3;
+    case JS_CANCELLED: return 4;
+    default:           return 0;
+    }
+}
+
+// 16x16 ikon: renkli daire + beyaz sembol. seffaflik icin alpha elle islenir
+// (GDI ciziyor, alpha'ya dokunmuyor; sonradan bos olmayan piksele 255 yazilir).
+static HBITMAP MakeStatusBitmap(COLORREF fill, int glyph) {
+    BITMAPINFO bi;
+    void *bits = NULL;
+    HDC hdc, m;
+    HBITMAP hb, old;
+    HPEN pen, oldPen;
+    HBRUSH br, oldBr;
+    DWORD *px;
+    int n;
+    memset(&bi, 0, sizeof(bi));
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = 16;
+    bi.bmiHeader.biHeight = -16;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    hdc = GetDC(NULL);
+    if (!hdc) return NULL;
+    hb = CreateDIBSection(hdc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (!hb || !bits) {
+        if (hb) DeleteObject(hb);
+        ReleaseDC(NULL, hdc);
+        return NULL;
+    }
+    m = CreateCompatibleDC(hdc);
+    old = (HBITMAP)SelectObject(m, hb);
+    br = CreateSolidBrush(fill);
+    pen = CreatePen(PS_SOLID, 1, fill);
+    oldBr = (HBRUSH)SelectObject(m, br);
+    oldPen = (HPEN)SelectObject(m, pen);
+    Ellipse(m, 1, 1, 15, 15);
+    SelectObject(m, oldBr); SelectObject(m, oldPen);
+    DeleteObject(br); DeleteObject(pen);
+    if (glyph == 1) { /* oynat ucgneti */
+        POINT pt[3] = { { 6, 4 }, { 6, 12 }, { 12, 8 } };
+        br = CreateSolidBrush(RGB(255, 255, 255));
+        pen = (HPEN)GetStockObject(NULL_PEN);
+        oldBr = (HBRUSH)SelectObject(m, br);
+        oldPen = (HPEN)SelectObject(m, pen);
+        Polygon(m, pt, 3);
+        SelectObject(m, oldBr); SelectObject(m, oldPen);
+        DeleteObject(br);
+    } else if (glyph == 2) { /* tik */
+        pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+        oldPen = (HPEN)SelectObject(m, pen);
+        MoveToEx(m, 4, 8, NULL); LineTo(m, 7, 11); LineTo(m, 12, 5);
+        SelectObject(m, oldPen); DeleteObject(pen);
+    } else if (glyph == 3) { /* carpi */
+        pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+        oldPen = (HPEN)SelectObject(m, pen);
+        MoveToEx(m, 5, 5, NULL); LineTo(m, 11, 11);
+        MoveToEx(m, 11, 5, NULL); LineTo(m, 5, 11);
+        SelectObject(m, oldPen); DeleteObject(pen);
+    } else if (glyph == 4) { /* cizgi */
+        pen = CreatePen(PS_SOLID, 2, RGB(255, 255, 255));
+        oldPen = (HPEN)SelectObject(m, pen);
+        MoveToEx(m, 5, 8, NULL); LineTo(m, 11, 8);
+        SelectObject(m, oldPen); DeleteObject(pen);
+    } else { /* soru isareti */
+        HFONT hf = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        HFONT of = (HFONT)SelectObject(m, hf);
+        RECT r = { 0, 0, 16, 16 };
+        SetTextColor(m, RGB(255, 255, 255));
+        SetBkMode(m, TRANSPARENT);
+        DrawTextW(m, L"?", 1, &r, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        SelectObject(m, of);
+    }
+    SelectObject(m, old);
+    DeleteDC(m);
+    ReleaseDC(NULL, hdc);
+    px = (DWORD *)bits;
+    for (n = 0; n < 256; n++)
+        if (px[n] & 0x00FFFFFF) px[n] |= 0xFF000000;
+    return hb;
+}
+
+static HIMAGELIST CreateStatusIcons(void) {
+    static const COLORREF fills[5] = {
+        RGB(158, 158, 158), RGB(33, 150, 243), RGB(76, 175, 80),
+        RGB(244, 67, 54), RGB(255, 152, 0)
+    };
+    HIMAGELIST him;
+    int k;
+    him = ImageList_Create(16, 16, ILC_COLOR32, 5, 0);
+    if (!him) return NULL;
+    for (k = 0; k < 5; k++) {
+        HBITMAP hb = MakeStatusBitmap(fills[k], k);
+        if (hb) { ImageList_Add(him, hb, NULL); DeleteObject(hb); }
+    }
+    return him;
+}
+
+// gorev cubugu ilerlemesi. state < 0 ise sadece deger guncellenir.
+static void TaskSet(int state, ULONGLONG done, ULONGLONG total) {
+    if (!g_pTask || !g_hMain) return;
+    if (state >= 0)
+        g_pTask->lpVtbl->SetProgressState(g_pTask, g_hMain, (TBPFLAG)state);
+    if (total > 0)
+        g_pTask->lpVtbl->SetProgressValue(g_pTask, g_hMain, done, total);
+}
+
 static void Layout(void) {
     RECT rc;
     int W, btnY = 8, listY = 44, progH = 24;
@@ -1350,6 +1481,15 @@ static void Layout(void) {
         SetWindowPos(g_hChkVerify, NULL, x + 70, btnY + 5, 170, 20, SWP_NOZORDER);
     }
     SetWindowPos(g_hList, NULL, 8, listY, W - 16, rc.bottom - listY - progH - 40, SWP_NOZORDER);
+    {
+        int lw = W - 16, lh = rc.bottom - listY - progH - 40, hw = 440, hh = 64;
+        if (g_hHint) {
+            if (hw > lw - 40) hw = lw - 40;
+            if (hw < 100) hw = 100;
+            SetWindowPos(g_hHint, NULL, 8 + (lw - hw) / 2, listY + (lh - hh) / 2,
+                         hw, hh, SWP_NOZORDER);
+        }
+    }
     SetWindowPos(g_hProg, NULL, 8, rc.bottom - progH - 30, W - 16, 20, SWP_NOZORDER);
     {
         RECT src;
@@ -1404,6 +1544,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                                        0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)IDC_CHK_VERIFY, g_hInst, NULL);
         SendMessageW(g_hChkVerify, BM_SETCHECK, BST_CHECKED, 0);
 
+        g_hImg = CreateStatusIcons();
+        if (g_hImg && g_hList) ListView_SetImageList(g_hList, g_hImg, LVSIL_SMALL);
+
         g_hList = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                   WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL,
                                   0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)IDC_LIST, g_hInst, NULL);
@@ -1439,9 +1582,30 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             HWND ch = GetWindow(hwnd, GW_CHILD);
             while (ch) { SendMessageW(ch, WM_SETFONT, (WPARAM)g_hFont, TRUE); ch = GetWindow(ch, GW_HWNDNEXT); }
         }
+        g_hFontBig = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 TURKISH_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+        if (!g_hFontBig) g_hFontBig = g_hFont;
+        g_hHint = CreateWindowExW(0, L"STATIC",
+                                  L"Videoları buraya sürükleyip bırakın\r\nveya \"Dosya Ekle\" düğmesine basın",
+                                  WS_CHILD | SS_CENTER,
+                                  0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)IDC_HINT, g_hInst, NULL);
+        if (g_hHint) {
+            SendMessageW(g_hHint, WM_SETFONT, (WPARAM)g_hFontBig, TRUE);
+            ShowWindow(g_hHint, SW_SHOW);
+        }
         DragAcceptFiles(hwnd, TRUE);
         Layout();
         return 0;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        if ((HWND)lParam == g_hHint) {
+            SetTextColor(hdc, RGB(110, 110, 110));
+            SetBkMode(hdc, TRANSPARENT);
+            return (LRESULT)GetStockObject(HOLLOW_BRUSH);
+        }
+        break;
     }
     case WM_SIZE:
         Layout();
@@ -1498,6 +1662,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         EnableWindow(g_hBtnClear, TRUE);
         EnableWindow(g_hBtnStop, FALSE);
         EnableWindow(g_hChkVerify, TRUE);
+        TaskSet(err > 0 ? TBPF_ERROR : TBPF_NOPROGRESS, 0, 0);
         RefreshTotals();
         secs = (GetTickCount64() - g_startTick) / 1000.0;
         swprintf(t, 256, L"Bitti: %d başarılı, %d hata, %d iptal (%.1f sn)", ok, err, canc, secs);
@@ -1515,6 +1680,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
+        if (g_hImg) ImageList_Destroy(g_hImg);
+        if (g_hFontBig && g_hFontBig != g_hFont) DeleteObject(g_hFontBig);
+        if (g_pTask) { g_pTask->lpVtbl->Release(g_pTask); g_pTask = NULL; }
         PostQuitMessage(0);
         return 0;
     }
@@ -1533,6 +1701,16 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
     g_hInst = hInst;
     InitializeCriticalSection(&g_cs);
     memset(g_procs, 0, sizeof(g_procs));
+    /* gorev cubugu ilerlemesi (Win7+). olmazsa sessizce gecilir. */
+    if (SUCCEEDED(CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
+        if (FAILED(CoCreateInstance(&CLSID_TaskbarList, NULL, CLSCTX_INPROC_SERVER,
+                                    &IID_ITaskbarList3, (void **)&g_pTask)))
+            g_pTask = NULL;
+        else if (FAILED(g_pTask->lpVtbl->HrInit(g_pTask))) {
+            g_pTask->lpVtbl->Release(g_pTask);
+            g_pTask = NULL;
+        }
+    }
 
     memset(&wc, 0, sizeof(wc));
     wc.cbSize = sizeof(wc);
@@ -1592,6 +1770,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
                 }
                 LocalFree(argv);
                 DeleteCriticalSection(&g_cs);
+                CoUninitialize();
                 return rc;
             }
             LocalFree(argv);
@@ -1624,6 +1803,8 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE hPrev, PWSTR cmd, int show) {
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }
+    if (g_pTask) { g_pTask->lpVtbl->Release(g_pTask); g_pTask = NULL; }
+    CoUninitialize();
     DeleteCriticalSection(&g_cs);
     return (int)m.wParam;
 }
