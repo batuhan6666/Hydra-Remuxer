@@ -122,14 +122,19 @@ static BOOL FileExistsW(const wchar_t *p) {
     return (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY));
 }
 
-/* Klasor drop'unda filtre icin medya uzantilari.
-   (Tek dosya birakmada filtre YOK: ffmpeg ne acarsa kabul.) */
+/* Giris kapisi: bu listedekiler alinir, gerisi (exe, txt, zip...) listeye
+   bile girmez. Liste bilerek genis tutuldu; supheli bir dosya gecerse
+   remux asamasinda zaten elenir. */
 static BOOL IsMediaExt(const wchar_t *ext) {
     static const wchar_t *list[] = {
-        L".mp4",L".m4v",L".mov",L".avi",L".mkv",L".ts",L".m2ts",L".mts",
-        L".m2t",L".flv",L".wmv",L".asf",L".webm",L".mpg",L".mpeg",L".vob",
-        L".3gp",L".3g2",L".ogv",L".rm",L".rmvb",L".divx",L".m4a",L".mp3",
-        L".flac",L".aac",L".ac3",L".dts",L".wav",L".opus",L".mka",L".mpv",NULL
+        L".mp4",L".m4v",L".mov",L".avi",L".mkv",L".mk3d",L".ts",L".m2ts",L".mts",
+        L".m2t",L".m2v",L".m1v",L".flv",L".f4v",L".wmv",L".asf",L".wtv",L".dvr-ms",
+        L".webm",L".mpg",L".mpeg",L".vob",L".evo",L".3gp",L".3g2",L".ogv",L".ogm",
+        L".ogg",L".oga",L".rm",L".rmvb",L".divx",L".nsv",L".mxf",L".dv",L".gxf",
+        L".m4a",L".m4b",L".mp3",L".mp2",L".flac",L".aac",L".ac3",L".dts",L".wav",
+        L".aiff",L".aif",L".opus",L".spx",L".mka",L".wma",L".amr",L".awb",L".au",
+        L".mpv",L".tp",L".h264",L".264",L".h265",L".265",L".hevc",L".avc",
+        L".m4s",L".ismv",L".y4m",L".bik",NULL
     };
     int i;
     if (!ext || !*ext) return FALSE;
@@ -263,7 +268,7 @@ static void RefreshTotals(void) {
     if (g_busy) TaskSet(TBPF_NORMAL, (ULONGLONG)doneN, (ULONGLONG)g_count);
 }
 
-// UI thread'inden cagrilir. donus: index, olmazsa -1
+// UI thread'inden cagrilir. donus: index, -1 hata, -2 medya degil
 static int AddJob(const wchar_t *path) {
     WIN32_FILE_ATTRIBUTE_DATA fad;
     const wchar_t *slash;
@@ -277,6 +282,17 @@ static int AddJob(const wchar_t *path) {
 
     if (!GetFileAttributesExW(path, GetFileExInfoStandard, &fad)) return -1;
     if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return -1;
+    {
+        /* uzanti kapisi: medya degilse kuyruga alma */
+        const wchar_t *s1 = wcsrchr(path, L'\\');
+        const wchar_t *s2 = wcsrchr(path, L'/');
+        const wchar_t *base = path;
+        const wchar_t *dot;
+        if (s1 && s1 + 1 > base) base = s1 + 1;
+        if (s2 && s2 + 1 > base) base = s2 + 1;
+        dot = wcsrchr(base, L'.');
+        if (!IsMediaExt(dot)) return -2;
+    }
 
     j = (Job *)calloc(1, sizeof(Job));
     if (!j) return -1;
@@ -1318,6 +1334,32 @@ static void ClearJobs(void) {
     RefreshTotals();
 }
 
+/* reddedilen dosya adini ozet listesine ekler (ilk 5, her biri 60 harf) */
+static void RejectAdd(wchar_t *rejList, UINT rej, const wchar_t *path) {
+    const wchar_t *s1, *s2, *fn;
+    wchar_t tmp[72];
+    if (rej > 5 || !rejList || !path) return;
+    s1 = wcsrchr(path, L'\\'); s2 = wcsrchr(path, L'/');
+    fn = path;
+    if (s1 && s1 + 1 > fn) fn = s1 + 1;
+    if (s2 && s2 + 1 > fn) fn = s2 + 1;
+    _snwprintf(tmp, 72, L"- %.60s\n", fn); tmp[71] = 0;
+    wcsncat(rejList, tmp, 511 - wcslen(rejList));
+}
+
+/* eklenemeyenler icin tek seferlik ozet kutusu (spam yok) */
+static void RejectNotice(HWND hwnd, UINT rej, const wchar_t *rejList) {
+    wchar_t msg[1024];
+    if (rej == 0) return;
+    if (rej > 5)
+        _snwprintf(msg, 1024, L"Medya dosyası olmadığı için eklenmedi (%u dosya):\n%s...ve %u tane daha", rej, rejList, rej - 5);
+    else
+        _snwprintf(msg, 1024, L"Medya dosyası olmadığı için eklenmedi:\n%s", rejList);
+    msg[1023] = 0;
+    MessageBoxW(hwnd, msg, L"Hydra Remuxer", MB_ICONWARNING | MB_OK);
+    RefreshTotals();
+}
+
 static void AddFilesDialog(void) {
     wchar_t *buf = (wchar_t *)malloc(32768 * sizeof(wchar_t));
     OPENFILENAMEW ofn;
@@ -1328,22 +1370,26 @@ static void AddFilesDialog(void) {
     ofn.hwndOwner = g_hMain;
     ofn.lpstrFile = buf;
     ofn.nMaxFile = 32768;
-    ofn.lpstrFilter = L"Tüm medya dosyaları\0*.mp4;*.m4v;*.mov;*.avi;*.mkv;*.ts;*.m2ts;*.mts;*.flv;*.wmv;*.asf;*.webm;*.mpg;*.mpeg;*.vob;*.3gp;*.ogv;*.mp3;*.flac;*.mka\0Tüm dosyalar\0*.*\0";
+    ofn.lpstrFilter = L"Tüm medya dosyaları\0*.mp4;*.m4v;*.mov;*.avi;*.mkv;*.mk3d;*.ts;*.m2ts;*.mts;*.flv;*.f4v;*.wmv;*.asf;*.wtv;*.webm;*.mpg;*.mpeg;*.vob;*.3gp;*.ogv;*.ogg;*.rm;*.rmvb;*.divx;*.mxf;*.dv;*.m4a;*.mp3;*.mp2;*.flac;*.aac;*.ac3;*.dts;*.wav;*.aiff;*.opus;*.mka;*.wma;*.amr;*.h264;*.h265;*.hevc;*.ogm;*.nsv\0Tüm dosyalar\0*.*\0";
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_ALLOWMULTISELECT | OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
     ofn.lpstrTitle = L"Dönüştürülecek dosyaları seç";
     if (GetOpenFileNameW(&ofn)) {
+        UINT rej = 0;
+        wchar_t rejList[512];
+        rejList[0] = 0;
         if (buf[wcslen(buf) + 1] == 0) {
-            AddJob(buf); /* tek secim: tam yol */
+            if (AddJob(buf) == -2) { RejectAdd(rejList, ++rej, buf); } /* tek secim: tam yol */
         } else {
             const wchar_t *dir = buf, *f = buf + wcslen(buf) + 1;
             while (*f) {
                 wchar_t full[32768];
                 _snwprintf(full, 32768, L"%s\\%s", dir, f); full[32767] = 0;
-                AddJob(full);
+                if (AddJob(full) == -2) { RejectAdd(rejList, ++rej, full); }
                 f += wcslen(f) + 1;
             }
         }
+        RejectNotice(g_hMain, rej, rejList);
     }
     free(buf);
 }
@@ -1618,6 +1664,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_DROPFILES: {
         HDROP h = (HDROP)wParam;
         UINT n = DragQueryFileW(h, 0xFFFFFFFF, NULL, 0), i;
+        UINT rej = 0;
+        wchar_t rejList[512];
+        rejList[0] = 0;
         for (i = 0; i < n; i++) {
             UINT len = DragQueryFileW(h, i, NULL, 0);
             wchar_t *p = (wchar_t *)malloc((len + 2) * sizeof(wchar_t));
@@ -1627,12 +1676,13 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
                 DWORD a = GetFileAttributesW(p);
                 if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY))
                     AddFolderDropped(p);
-                else
-                    AddJob(p);
+                else if (AddJob(p) == -2)
+                    RejectAdd(rejList, ++rej, p);
             }
             free(p);
         }
         DragFinish(h);
+        RejectNotice(hwnd, rej, rejList);
         SetForegroundWindow(hwnd);
         return 0;
     }

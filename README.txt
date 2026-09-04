@@ -11,6 +11,8 @@ KURULUM
 
 KULLANIM
   Videolari pencereye surukle-birak, Baslat'a bas. Hepsi bu.
+  Yalnizca medya dosyalari listeye alinir; exe/txt/zip gibiler
+  uyarıyla geri cevrilir, kuyruga girmez.
   Ciktilar giris dosyasinin yanina yazilir: film.mp4 -> film.mkv
   Uzerine yazma yok; isim cakisisa film (1).mkv olur, mkv giriste film.remux.mkv.
   Olusturma + degistirme tarihleri aynen kopyalanir.
