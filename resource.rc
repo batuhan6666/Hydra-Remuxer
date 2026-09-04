@@ -1,0 +1,34 @@
+#include <windows.h>
+
+#define CREATEPROCESS_MANIFEST_RESOURCE_ID 1
+#define RT_MANIFEST 24
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
+
+1 VERSIONINFO
+ FILEVERSION     1,0,0,0
+ PRODUCTVERSION  1,0,0,0
+ FILEFLAGSMASK   0x3fL
+ FILEFLAGS       0x0L
+ FILEOS          0x4L
+ FILETYPE        0x1L
+ FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904E4"
+        BEGIN
+            VALUE "CompanyName",      "RemuxMKV"
+            VALUE "FileDescription",  "RemuxMKV - Win32 FFmpeg Remux (hedef: MKV)"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "RemuxMKV"
+            VALUE "OriginalFilename", "RemuxMKV.exe"
+            VALUE "ProductName",      "RemuxMKV"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1254
+    END
+END
